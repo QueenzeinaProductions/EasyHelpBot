@@ -15,7 +15,7 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-#######     Easy Help Bot v1.1      #######
+#######     Easy Help Bot v1.1.2      #######
 
 import logging
 import datetime
@@ -58,8 +58,9 @@ def start(update: Update, context: CallbackContext) -> None:
     for i in jobs:
         job = jobs[i]
         remove_job_if_exists(i, context)
+        time = datetime.datetime.strptime(job['time'], "%H:%M")
         context.job_queue.run_daily(
-            alarm, job['time'], job['days'], context=chat_id, name=i)
+            alarm, time, job['days'], context=chat_id, name=i)
 
 
 def answer(update: Update, context: CallbackContext) -> None:
@@ -115,7 +116,7 @@ def set_job(update: Update, context: CallbackContext) -> int:
 
 def set_time(update: Update, context: CallbackContext) -> int:
     global time
-    time = datetime.datetime.strptime(update.message.text, "%H:%M")
+    time = update.message.text
     update.message.reply_text(
         'In che giorni deve funzionare, espressi in numeri (lunedì=0) di defaul lunedì-venerdì (0,1,2,3,4)?')
 
@@ -150,31 +151,31 @@ def set_text(update: Update, context: CallbackContext) -> int:
 
 def unset(update: Update, context: CallbackContext) -> None:
     if is_admin(update):
-        if context.args[0] != '':
+        try:
             index = []
             for i in configuration["autotexting"]:
                 index.append(i)
-            jobname = index[int(context.args[0])]
-            job_removed = remove_job_if_exists(jobname, context)
-            text = 'Messaggio automatico rimosso!' if job_removed else 'Non hai messaggi automatici impostati'
-        else:
-            text = 'Troppo pochi argomenti\n/unset <NUMERO>\nComanda /show per ricevere la lista numerata'
+            configuration["autotexting"].pop(index[(int(context.args[0]) - 1)])
+        except (IndexError, ValueError):
+            text = 'Troppo pochi argomenti\n/unset <NUMERO>\n/show per ricevere la lista numerata'
         update.message.reply_text(text)
 
 
 def show(update: Update, context: CallbackContext) -> None:
-    conf = configuration['autotexting']
-    text = 'Hai i seguenti messaggi automatici impostati:\n'
-    count = 0
-    for i in conf:
-        count += 1
-        text += (str(count) + ' ' +
-                 str(conf[i]["time"]) + ' ' + str(conf[i]["days"]))
-    update.message.reply_text(text)
+    if is_admin(update):
+        conf = configuration['autotexting']
+        text = 'Hai i seguenti messaggi automatici impostati:\n'
+        count = 0
+        for i in conf:
+            count += 1
+            text += (str(count) + ' ' +
+                    str(conf[i]["time"]) + ' ' + str(conf[i]["days"]) + '\n')
+        update.message.reply_text(text)
 
 
 def help_command(update: Update, context: CallbackContext) -> None:
     update.message.reply_text(
+        'SOSTUIRE ANCHE <>\n'
         '/start avvia il bot\n/add aggiunge il numero\n'
         '/del elimina il numero\n/edit modifica il numero\n'
         '/update salva la configurazione\n/reset resetta la configurazione'
@@ -348,6 +349,7 @@ def admin(update: Update, context: CallbackContext) -> None:
         elif cmd == "telephone":
             try:
                 if context.args[1] != configuration["admin"]["telephone"]:
+                    configuration["admin"]["telephone"] = context.args[1]
                     update.message.reply_text('Numero telefonico aggiornato!')
                 else:
                     update.message.reply_text('Il numero è lo stesso!')
@@ -362,6 +364,7 @@ def admin(update: Update, context: CallbackContext) -> None:
 
 def admin_help(update: Update) -> None:
     update.message.reply_text(
+        'SOSTUIRE ANCHE <>\n\n'
         '/admin <COMANDO> ...\n\nCOMANDI:\n\n'
         'register <PASSWORD> registra l\'utente come amministratore\n\n'
         'passwd <VECCHIAPASSWORD> <NUOVAPASSWORD> cambia password\n\n'
@@ -378,7 +381,7 @@ def is_admin(update: Update) -> bool:
 
 
 def echo(update: Update, context: CallbackContext) -> None:
-    text = f'Mi spiace non sono in grado di aiutarti😕\nProva a contattare il numero: {configuration["admin"]["telephone"]}'
+    text = f'Mi spiace non sono in grado di aiutarti😕\nProva a contattare il numero: +39{configuration["admin"]["telephone"]}'
     update.message.reply_text(text)
 
 
@@ -389,7 +392,7 @@ def main() -> None:
         filename='arbitrarycallbackdatabot.pickle', store_callback_data=True
     )
     # Create the Updater and pass it your bot's token.
-    updater = Updater("5687197897:AAGmX0cxlbw3pPNDEyBIhIff-i-MrtIZgFM",
+    updater = Updater(configuration['token'],
                       persistence=persistence, arbitrary_callback_data=True)
 
     updater.dispatcher.add_handler(CommandHandler('start', start))
@@ -400,9 +403,6 @@ def main() -> None:
     updater.dispatcher.add_handler(CommandHandler('admin', admin))
     updater.dispatcher.add_handler(CommandHandler('reset', reset))
 
-    echohandler = MessageHandler(Filters.text & ~Filters.command, echo)
-    updater.dispatcher.add_handler(echohandler)
-
     updater.dispatcher.add_handler(CallbackQueryHandler(
         handle_invalid_button, pattern=InvalidCallbackData))
     updater.dispatcher.add_handler(CallbackQueryHandler(answer))
@@ -411,7 +411,7 @@ def main() -> None:
         entry_points=[CommandHandler('add', add_number)],
         states={
             NAME: [MessageHandler(Filters.text & ~Filters.command, name)],
-            NUMBER: [MessageHandler(Filters.regex('^(.........?)$'), phonenumber)]
+            NUMBER: [MessageHandler(Filters.text & ~Filters.command, phonenumber)]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -428,7 +428,7 @@ def main() -> None:
         entry_points=[CommandHandler('edit', edit_number)],
         states={
             NAME: [MessageHandler(Filters.text & ~Filters.command, name)],
-            NUMBER: [MessageHandler(Filters.regex('^(.........?)$'), numberedit)],
+            NUMBER: [MessageHandler(Filters.text & ~Filters.command, numberedit)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -447,6 +447,9 @@ def main() -> None:
     updater.dispatcher.add_handler(conv_del)
     updater.dispatcher.add_handler(conv_edit)
     updater.dispatcher.add_handler(conv_set)
+
+    echohandler = MessageHandler(Filters.text, echo)
+    updater.dispatcher.add_handler(echohandler)
 
     # Start the Bot
     updater.start_polling()
